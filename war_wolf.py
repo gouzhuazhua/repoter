@@ -107,33 +107,36 @@ class WarWolf:
         Returns:
 
         """
-        is_dire = False
-        players = results['players']
-        for player in players:
-            if player['account_id'] == self.account_id_32bit:
-                index = players.index(player)
-                player_slot_0b = '{:08b}'.format(player['player_slot'])
-                if player_slot_0b[0] == '1':
-                    is_dire = True
+        is_dire = False  # 队伍为夜魇标识
+        players = results['players']  # 获取当前比赛所有玩家详情
+        for player in players:  # 遍历每个玩家详情
+            if player['account_id'] == self.account_id_32bit:  # 以玩家32位steamid确定该玩家是当前子进程玩家
+                index = players.index(player)  # 记录该玩家在列表中的index
+                # player_slot 为十进制，需要转换为8位二进制
+                # 二进制中的最高位标识玩家阵营，1：夜魇/0：天辉
+                player_slot_0b = '{:08b}'.format(player['player_slot'])  # 获取玩家详情信息中的player_slot
+                if player_slot_0b[0] == '1':  # 如果最高位为1
+                    is_dire = True  # 标识该玩家为夜魇阵营
                 break
 
-        player_slot_0b_start = '1' if is_dire else '0'
-        player_deaths = {}
-        for player in players:
-            player_slot_0b = '{:08b}'.format(player['player_slot'])
-            if player_slot_0b[0] == player_slot_0b_start:
-                player_deaths[player['account_id']] = player['deaths']
-        player_deaths = sorted(player_deaths.items(), key=lambda x: x[1], reverse=True)
-        max_death_player_account_id_32bit = player_deaths[0][0]
-        if max_death_player_account_id_32bit == self.account_id_32bit and player_deaths[0][1] >= 10:
-            player = players[index]
+        player_slot_0b_start = '1' if is_dire else '0'  # 根据夜魇标识设置玩家player_slot最高位
+        player_deaths = {}  # 玩家32位steamid和死亡数dict
+        for player in players:  # 遍历每个玩家详情
+            player_slot_0b = '{:08b}'.format(player['player_slot'])  # 获取玩家的player_slot
+            if player_slot_0b[0] == player_slot_0b_start:  # 最高位相等，即该玩家与当前子进程玩家属于同一阵营
+                player_deaths[player['account_id']] = player['deaths']  # 记录32位steamid和死亡数
+        player_deaths = sorted(player_deaths.items(), key=lambda x: x[1], reverse=True)  # 根据死亡数排序，由高到低
+        max_death_player_account_id_32bit = player_deaths[0][0]  # 取死亡数最高的玩家的32位steamid
+        if max_death_player_account_id_32bit == self.account_id_32bit and player_deaths[0][1] >= 10:  # 满足死亡数最高的玩家为当前子进程玩家且死亡数超过十次
+            player = players[index]  # 获取当前子进程玩家的比赛信息
+            # 封装上报数据
             report_info = {'hero': self.get_hero_name_by_id(int(player['hero_id'])),
                            'level': player['level'],
                            'kills': player['kills'],
                            'deaths': player['deaths'],
                            'hero_damage': player['hero_damage'],
                            'start_time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(results['start_time']))}
-            self.report(report_info)
+            self.report(report_info)  # 解析并推送到queue
 
     def report(self, report_info):
         """
@@ -208,7 +211,7 @@ class WarWolf:
 
         """
         match_id = self.get_match()
-        if self.match_id_record != match_id:
+        if self.match_id_record != match_id:  # 每5分钟获取到的match_id与内存中记录的match_id不一致
             logging.info('发现用户【%s】的新比赛：【%s】' % (get_name(self.account_id_32bit), match_id))
             results = self.get_match_details(match_id)
             self.read_result(results)
@@ -226,15 +229,17 @@ def subprocess_event_producer(*args):
     Returns:
 
     """
-    ww = WarWolf(args[0], args[1], args[2])
+    ww = WarWolf(args[0], args[1], args[2])  # 实例化战狼对象
+    # APScheduler是一个 Python 定时任务框架。
+    # 提供了基于日期、固定时间间隔以及 crontab 类型的任务，并且可以持久化任务、并以 daemon 方式运行应用。
     scheduler = BlockingScheduler()
-    scheduler.add_job(ww.main, 'interval', seconds=300)
+    scheduler.add_job(ww.main, 'interval', seconds=300)  # 5分钟执行一次main方法
     scheduler.start()
 
 
 def subprocess_event_consumer(queue):
     """
-    消费者子进程
+    消费者子进程，该方法尚未成功应用，需考虑其他方法推送至微信群
     Args:
         queue:
 
@@ -252,8 +257,9 @@ def subprocess_event_consumer(queue):
 
 
 if __name__ == '__main__':
-    q = Manager().Queue()
+    q = Manager().Queue()  # 多进程队列
     executor = ProcessPoolExecutor(max_workers=10)  # 进程池
+    # 九位玩家分别对应一个子进程
     task_1 = executor.submit(subprocess_event_producer, BYISHIN_64BIT, BYISHIN_32BIT, q)
     task_2 = executor.submit(subprocess_event_producer, LEEROY_64BIT, LEEROY_32BIT, q)
     task_3 = executor.submit(subprocess_event_producer, NEKO_64BIT, NEKO_32BIT, q)
@@ -264,4 +270,5 @@ if __name__ == '__main__':
     task_8 = executor.submit(subprocess_event_producer, NEVEROWNED_64BIT, NEVEROWNED_32BIT, q)
     task_9 = executor.submit(subprocess_event_producer, RABBIT_64BIT, RABBIT_32BIT, q)
 
+    # 上报子进程
     task_10 = executor.submit(subprocess_event_consumer, q)
