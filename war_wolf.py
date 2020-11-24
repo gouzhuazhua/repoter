@@ -7,24 +7,24 @@
 @Description:
 """
 import logging
-import pywinauto.keyboard as kb
+
+import pyperclip
 import sqlite3
 import time
 import traceback
 from concurrent.futures.process import ProcessPoolExecutor
 from functools import wraps
 from json import loads
-from multiprocessing import Queue, Manager
+from multiprocessing import Manager
 
+import win32api
+import win32con
+import win32gui
 from apscheduler.schedulers.blocking import BlockingScheduler
-from pywinauto import Application
+from fake_useragent import UserAgent
 from requests import get
 
 from config import *
-
-
-app = Application(backend='uia')
-app.connect(path=r'D:\Program Files (x86)\Tencent\WeChat\WeChat.exe')
 
 
 logging.basicConfig(level=logging.INFO,
@@ -54,6 +54,8 @@ class WarWolf:
         self.account_id_32bit = account_id_32bit
         self.queue = queue
         self.match_id_record = None
+        self.ua = UserAgent()
+        self.headers = {"user-agent": self.ua.random}
 
         # db
         self.conn = None
@@ -67,7 +69,7 @@ class WarWolf:
         """
         _url = API_MATCH_HISTORY + '?key=%s' % API_KEY + '&account_id=%s' % self.account_id_64bit + '&matches_requested=1'
         try:
-            _matches = get(_url)
+            _matches = get(_url, headers=self.headers)
             matches_dict = loads(_matches.text)
             matches = matches_dict['result']['matches']
             if len(matches) > 0:
@@ -79,8 +81,7 @@ class WarWolf:
             logging.error(traceback.format_exc())
             return None
 
-    @staticmethod
-    def get_match_details(match_id):
+    def get_match_details(self, match_id):
         """
         获取比赛详情
         Args:
@@ -91,7 +92,7 @@ class WarWolf:
         """
         try:
             _url = API_MATCH_DETAILS + '?key=%s' % API_KEY + '&match_id=%s' % match_id
-            _details = get(_url)
+            _details = get(_url, headers=self.headers)
             details_dict = loads(_details.text)
             return details_dict['result']
         except:
@@ -149,22 +150,13 @@ class WarWolf:
         """
         name = get_name(self.account_id_32bit)
         level = get_level(report_info['deaths'])
-        msg = []
-        msg_0 = '【战狼播报】'
-        msg_1 = '恭喜【%s】达到【%s】境【%s】!' % (name, report_info['hero'], level)
-        msg_2 = '【比赛时间】:%s ' % report_info['start_time']
-        msg_3 = '【等级】:%s' % report_info['level']
-        msg_4 = '【击杀】:%s' % report_info['kills']
-        msg_5 = '【死亡】:%s' % report_info['deaths']
-        msg_6 = '【伤害】:%s' % report_info['hero_damage']
-        msg.append(msg_0)
-        msg.append(msg_1)
-        msg.append(msg_2)
-        msg.append(msg_3)
-        msg.append(msg_4)
-        msg.append(msg_5)
-        msg.append(msg_6)
-        # print(msg)
+        msg = '【战狼播报】\n' \
+              ' 恭喜【%s】达到【%s】境【%s】!\n' \
+              '【比赛时间】:%s\n' \
+              '【等级】:%s\n' \
+              '【击杀】:%s\n' \
+              '【死亡】:%s\n' \
+              '【伤害】:%s' % (name, report_info['hero'], level, report_info['start_time'], report_info['level'], report_info['kills'], report_info['deaths'], report_info['hero_damage'])
         self.queue.put(msg)
 
     def get_hero_name_by_id(self, hero_id):
@@ -233,7 +225,7 @@ def subprocess_event_producer(*args):
     # APScheduler是一个 Python 定时任务框架。
     # 提供了基于日期、固定时间间隔以及 crontab 类型的任务，并且可以持久化任务、并以 daemon 方式运行应用。
     scheduler = BlockingScheduler()
-    scheduler.add_job(ww.main, 'interval', seconds=300)  # 5分钟执行一次main方法
+    scheduler.add_job(ww.main, 'interval', seconds=600)  # 5分钟执行一次main方法
     scheduler.start()
 
 
@@ -246,13 +238,24 @@ def subprocess_event_consumer(queue):
     Returns:
 
     """
+    handle = win32gui.FindWindow(None, '信鸽国际有限公司')
     while 1:
         if not queue.empty():
             msg = queue.get()
-            for m in msg:
-                app['微信']['22194Edit'].type_keys(m)
-                kb.send_keys('+{VK_RETURN}')
-            kb.send_keys('{VK_RETURN}')
+            win32gui.SetForegroundWindow(handle)
+
+            # 复制msg至粘贴板
+            pyperclip.copy(msg)
+            # ctrl v
+            win32api.keybd_event(17, 0, 0, 0)  # ctrl
+            win32api.keybd_event(86, 0, 0, 0)  # v
+            win32api.keybd_event(86, 0, win32con.KEYEVENTF_KEYUP, 0)
+            win32api.keybd_event(17, 0, win32con.KEYEVENTF_KEYUP, 0)
+            # alt s
+            win32api.keybd_event(18, 0, 0, 0)  # Alt
+            win32api.keybd_event(83, 0, 0, 0)  # s
+            win32api.keybd_event(18, 0, win32con.KEYEVENTF_KEYUP, 0)
+            win32api.keybd_event(83, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(5)
 
 
