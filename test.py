@@ -1,37 +1,44 @@
 import time
-from concurrent.futures.process import ProcessPoolExecutor
-from multiprocessing import Manager
-import pywinauto.keyboard as kb
-from pywinauto import Application
+import win32api
+import win32con
+import win32gui
 import pyperclip
 
-
-app = Application(backend='uia')
-app.connect(path=r'D:\Program Files (x86)\Tencent\WeChat\WeChat.exe')
+hwnd_title = dict()
 
 
-def producer(msg, q):
-    q.put(msg)
+def get_all_hwnd(hwnd, mouse):
+    if win32gui.IsWindow(hwnd) and win32gui.IsWindowEnabled(hwnd) and win32gui.IsWindowVisible(hwnd):
+        hwnd_title.update({hwnd: win32gui.GetWindowText(hwnd)})
 
 
-def consumer(q):
-    while 1:
-        if not q.empty():
-            msg = q.get()
-            pyperclip.copy(msg)
-            kb.send_keys('^v')
-        else:
-            print(q.empty())
-        time.sleep(1)
+def test_0():
+    win32gui.EnumWindows(get_all_hwnd, 0)
+
+    for h, t in hwnd_title.items():
+        if t != '':
+            print(h, t)
+
+
+def test_1():
+    handle = win32gui.FindWindow(None, '信鸽国际有限公司')
+    print(handle)
+    win32gui.SetForegroundWindow(handle)
+    msg = 'abc\n' \
+          '123\n' \
+          'zxc'
+    pyperclip.copy(msg)
+
+    win32api.keybd_event(17, 0, 0, 0)  # ctrl
+    win32api.keybd_event(86, 0, 0, 0)  # v
+    win32api.keybd_event(86, 0, win32con.KEYEVENTF_KEYUP, 0)
+    win32api.keybd_event(17, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+    win32api.keybd_event(18, 0, 0, 0)  # Alt
+    win32api.keybd_event(83, 0, 0, 0)  # s
+    win32api.keybd_event(18, 0, win32con.KEYEVENTF_KEYUP, 0)
+    win32api.keybd_event(83, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
 if __name__ == '__main__':
-    q = Manager().Queue()
-    executor = ProcessPoolExecutor(max_workers=6)
-    executor.submit(producer, 'process_1 is \ncalling', q)
-    executor.submit(producer, 'process_2 is \ncalling', q)
-    executor.submit(producer, 'process_3 is \ncalling', q)
-    executor.submit(producer, 'process_4 is \ncalling', q)
-    executor.submit(producer, 'process_5 is \ncalling', q)
-
-    executor.submit(consumer, q)
+    test_1()
