@@ -135,6 +135,7 @@ class WarWolf:
                        'level': player['level'],
                        'kills': player['kills'],
                        'deaths': player['deaths'],
+                       'assists': player['assists'],
                        'hero_damage': player['hero_damage'],
                        'start_time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(results['start_time']))}
 
@@ -172,11 +173,13 @@ class WarWolf:
             # 触发条件五：正补超过400
             if player['last_hits'] >= 400:
                 self.record_in_db(match_id, self.account_id_64bit, '割草')
+                report_info['last_hits'] = player['last_hits']
                 self.report('割草', report_info)
 
             # 触发条件六：反补超过80
             if player['denies'] >= 30:
                 self.record_in_db(match_id, self.account_id_64bit, '被刺')
+                report_info['denies'] = player['denies']
                 self.report('被刺', report_info)
 
             dae = round((player['hero_damage'] / (results['duration'] / 60)) / player['gold_per_min'], 2)
@@ -237,6 +240,7 @@ class WarWolf:
                     '【等级】: %s\n' % report_info['level'],
                     '【击杀】: %s\n' % report_info['kills'],
                     '【死亡】: %s\n' % report_info['deaths'],
+                    '【助攻】: %s\n' % report_info['assists'],
                     '【伤害】: %s\n' % report_info['hero_damage']]
 
         if achievement_name == '点到为止':
@@ -246,9 +250,9 @@ class WarWolf:
         elif achievement_name == '借刀':
             msg_list.append('【平均击杀伤害】: %s\n' % report_info['damage_per_kill'])
         elif achievement_name == '割草':
-            pass
+            msg_list.append('【正补】: %s \n' % report_info['last_hits'])
         elif achievement_name == '被刺':
-            pass
+            msg_list.append('【反补】: %s \n' % report_info['denies'])
         elif achievement_name == '浑水':
             msg_list.append('【经济输出比】: %s \n' % report_info['dae'])
         elif achievement_name == '志愿':
