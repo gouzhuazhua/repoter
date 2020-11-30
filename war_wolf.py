@@ -26,7 +26,6 @@ from requests import get
 
 from config import *
 
-
 logging.basicConfig(level=logging.INFO,
                     format=LOG_FORMAT,
                     datefmt=DATE_FORMAT,
@@ -43,7 +42,9 @@ def time_logger():
             r_time = end_time - start_time
             logging.info("func [%s] take [%s] seconds" % (func.__name__, str(round(r_time, 2))))
             return rs
+
         return decorator
+
     return logging_decorator
 
 
@@ -128,36 +129,144 @@ class WarWolf:
                 player_deaths[player['account_id']] = player['deaths']  # 记录32位steamid和死亡数
         player_deaths = sorted(player_deaths.items(), key=lambda x: x[1], reverse=True)  # 根据死亡数排序，由高到低
         max_death_player_account_id_32bit = player_deaths[0][0]  # 取死亡数最高的玩家的32位steamid
-        if max_death_player_account_id_32bit == self.account_id_32bit and player_deaths[0][1] >= 10:  # 满足死亡数最高的玩家为当前子进程玩家且死亡数超过十次
-            player = players[index]  # 获取当前子进程玩家的比赛信息
-            # 封装上报数据
-            report_info = {'hero': self.get_hero_name_by_id(int(player['hero_id'])),
-                           'level': player['level'],
-                           'kills': player['kills'],
-                           'deaths': player['deaths'],
-                           'hero_damage': player['hero_damage'],
-                           'start_time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(results['start_time']))}
-            self.report(report_info)  # 解析并推送到queue
 
-    def report(self, report_info):
+        player = players[index]  # 获取当前子进程玩家的比赛信息
+        report_info = {'hero': self.get_hero_name_by_id(player['hero_id']),
+                       'level': player['level'],
+                       'kills': player['kills'],
+                       'deaths': player['deaths'],
+                       'hero_damage': player['hero_damage'],
+                       'start_time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(results['start_time']))}
+
+        try:
+            match_id = results['match_id']
+
+            # 触发条件一：死亡数最高且超过十次
+            if max_death_player_account_id_32bit == self.account_id_32bit and player_deaths[0][
+                1] >= 10:  # 满足死亡数最高的玩家为当前子进程玩家且死亡数超过十次
+                if self.account_id_32bit != 140996187:
+                    # 封装上报数据
+                    self.report(0, report_info)  # 解析并推送到queue
+                else:
+                    if player_deaths[0][1] >= 15:
+                        self.report(0, report_info)  # 解析并推送到queue
+
+            # 触发条件二：0杀
+            if player['kills'] == 0:
+                self.record_in_db(match_id, self.account_id_64bit, '点到为止')
+                self.report('点到为止', report_info)
+
+            # 触发条件三：20杀
+            if player['kills'] >= 20:
+                self.record_in_db(match_id, self.account_id_64bit, '修罗')
+                self.report('修罗', report_info)
+
+            # 触发条件四：平均人头伤害低于2000
+            if player['kills'] > 0:
+                damage_per_kill = player['hero_damage'] / player['kills']
+                if damage_per_kill <= 2000:
+                    self.record_in_db(match_id, self.account_id_64bit, '借刀')
+                    report_info['damage_per_kill'] = round(damage_per_kill, 2)
+                    self.report('借刀', report_info)
+
+            # 触发条件五：正补超过400
+            if player['last_hits'] >= 400:
+                self.record_in_db(match_id, self.account_id_64bit, '割草')
+                self.report('割草', report_info)
+
+            # 触发条件六：反补超过80
+            if player['denies'] >= 30:
+                self.record_in_db(match_id, self.account_id_64bit, '被刺')
+                self.report('被刺', report_info)
+
+            dae = round((player['hero_damage'] / (results['duration'] / 60)) / player['gold_per_min'], 2)
+            # 触发条件七：经济输出比低于0.6
+            if dae <= 0.6:
+                self.record_in_db(match_id, self.account_id_64bit, '浑水')
+                report_info['dae'] = dae
+                self.report('浑水', report_info)
+
+            # 触发条件七：经济输出比高于1.5
+            if dae >= 1.5:
+                self.record_in_db(match_id, self.account_id_64bit, '志愿')
+                report_info['dae'] = dae
+                self.report('志愿', report_info)
+        except:
+            logging.error(traceback.format_exc())
+
+    def record_in_db(self, *args):
+        """
+        记录到数据库
+        Returns:
+
+        """
+        self.connect_db()
+        ach_id = self.cursor.execute(
+            'SELECT a.id FROM achievements a WHERE a.name = ?', (args[2],)
+        ).fetchone()[0]
+        if self.cursor.execute(
+                'SELECT * FROM player_achevements WHERE match_id = ? AND account_id = ? AND ach_id = ?',
+                (args[0], args[1], ach_id)
+        ).fetchone() is None:
+            self.cursor.execute(
+                'INSERT INTO player_achevements(match_id, account_id, ach_id) VALUES (?, ?, ?)',
+                (args[0], args[1], ach_id)
+            )
+        self.close_db()
+
+    def report(self, achievement_name, report_info):
         """
         发送解析结果至队列（生产者）
         Args:
+            achievement_name:
             report_info:
 
         Returns:
 
         """
         name = get_name(self.account_id_32bit)
-        level = get_level(report_info['deaths'])
-        msg = '【战狼播报】\n' \
-              ' 恭喜【%s】达到【%s】境【%s】!\n' \
-              '【比赛时间】:%s\n' \
-              '【等级】:%s\n' \
-              '【击杀】:%s\n' \
-              '【死亡】:%s\n' \
-              '【伤害】:%s' % (name, report_info['hero'], level, report_info['start_time'], report_info['level'], report_info['kills'], report_info['deaths'], report_info['hero_damage'])
+        self.connect_db()
+        description = self.cursor.execute(
+            'SELECT a.description FROM achievements a WHERE a.name = ?', (achievement_name,)
+        ).fetchone()[0]
+        msg_list = ['【战狼播报】\n',
+                    '【%s】解锁成就【%s】\n' % (name, achievement_name),
+                    ' · %s\n' % description,
+                    '【比赛时间】: %s\n' % report_info['start_time'],
+                    '【使用英雄】: %s\n' % report_info['hero'],
+                    '【等级】: %s\n' % report_info['level'],
+                    '【击杀】: %s\n' % report_info['kills'],
+                    '【死亡】: %s\n' % report_info['deaths'],
+                    '【伤害】: %s\n' % report_info['hero_damage']]
+
+        if achievement_name == '点到为止':
+            pass
+        elif achievement_name == '修罗':
+            pass
+        elif achievement_name == '借刀':
+            msg_list.append('【平均击杀伤害】: %s\n' % report_info['damage_per_kill'])
+        elif achievement_name == '割草':
+            pass
+        elif achievement_name == '被刺':
+            pass
+        elif achievement_name == '浑水':
+            msg_list.append('【经济输出比】: %s \n' % report_info['dae'])
+        elif achievement_name == '志愿':
+            msg_list.append('【经济输出比】: %s \n' % report_info['dae'])
+        msg = ''.join(msg_list)
         self.queue.put(msg)
+
+        if achievement_name == 0:  # 单独考虑死亡次数统计
+            level = get_level(report_info['deaths'])
+            msg = '【战狼播报】\n' \
+                  '【%s】达到【%s】境【%s】!\n' \
+                  '【比赛时间】: %s\n' \
+                  '【等级】: %s\n' \
+                  '【击杀】: %s\n' \
+                  '【死亡】: %s\n' \
+                  '【伤害】: %s' % (name, report_info['hero'], level, report_info['start_time'], report_info['level'],
+                                report_info['kills'], report_info['deaths'], report_info['hero_damage'])
+            self.queue.put(msg)
 
     def get_hero_name_by_id(self, hero_id):
         """
@@ -170,7 +279,7 @@ class WarWolf:
         """
         self.connect_db()
         cursor = self.cursor.execute(
-            'SELECT * FROM hero WHERE hero_id = ?', (hero_id, )
+            'SELECT * FROM hero WHERE hero_id = ?', (hero_id,)
         ).fetchone()
         return cursor[2]
 
@@ -242,20 +351,21 @@ def subprocess_event_consumer(queue):
     while 1:
         if not queue.empty():
             msg = queue.get()
-            win32gui.SetForegroundWindow(handle)
-
-            # 复制msg至粘贴板
-            pyperclip.copy(msg)
-            # ctrl v
-            win32api.keybd_event(17, 0, 0, 0)  # ctrl
-            win32api.keybd_event(86, 0, 0, 0)  # v
-            win32api.keybd_event(86, 0, win32con.KEYEVENTF_KEYUP, 0)
-            win32api.keybd_event(17, 0, win32con.KEYEVENTF_KEYUP, 0)
-            # alt s
-            win32api.keybd_event(18, 0, 0, 0)  # Alt
-            win32api.keybd_event(83, 0, 0, 0)  # s
-            win32api.keybd_event(18, 0, win32con.KEYEVENTF_KEYUP, 0)
-            win32api.keybd_event(83, 0, win32con.KEYEVENTF_KEYUP, 0)
+            pass  # 考虑其他方式推送至终端
+            # win32gui.SetForegroundWindow(handle)
+            #
+            # # 复制msg至粘贴板
+            # pyperclip.copy(msg)
+            # # ctrl v
+            # win32api.keybd_event(17, 0, 0, 0)  # ctrl
+            # win32api.keybd_event(86, 0, 0, 0)  # v
+            # win32api.keybd_event(86, 0, win32con.KEYEVENTF_KEYUP, 0)
+            # win32api.keybd_event(17, 0, win32con.KEYEVENTF_KEYUP, 0)
+            # # alt s
+            # win32api.keybd_event(18, 0, 0, 0)  # Alt
+            # win32api.keybd_event(83, 0, 0, 0)  # s
+            # win32api.keybd_event(18, 0, win32con.KEYEVENTF_KEYUP, 0)
+            # win32api.keybd_event(83, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(5)
 
 
