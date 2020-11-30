@@ -205,11 +205,11 @@ class WarWolf:
             'SELECT a.id FROM achievements a WHERE a.name = ?', (args[2],)
         ).fetchone()[0]
         if self.cursor.execute(
-                'SELECT * FROM player_achevements WHERE match_id = ? AND account_id = ? AND ach_id = ?',
+                'SELECT * FROM player_achievements WHERE match_id = ? AND account_id = ? AND ach_id = ?',
                 (args[0], args[1], ach_id)
         ).fetchone() is None:
             self.cursor.execute(
-                'INSERT INTO player_achevements(match_id, account_id, ach_id) VALUES (?, ?, ?)',
+                'INSERT INTO player_achievements(match_id, account_id, ach_id) VALUES (?, ?, ?)',
                 (args[0], args[1], ach_id)
             )
         self.close_db()
