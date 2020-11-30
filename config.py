@@ -9,7 +9,7 @@
 
 
 # api
-API_KEY = '2D68F296277144714848126A5B9727A1'
+API_KEY = 'your_steam_api_key'
 API_MATCH_HISTORY = 'https://api.steampowered.com/IDOTA2Match_570/GetMatchHistory/V001/'
 API_MATCH_DETAILS = 'http://api.steampowered.com/IDOTA2Match_570/GetMatchDetails/v1'
 API_HEROES = 'http://api.steampowered.com/IEconDOTA2_570/GetHeroes/v1?key=2D68F296277144714848126A5B9727A1&language=zh-cn '
